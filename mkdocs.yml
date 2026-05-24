@@ -35,3 +35,10 @@ markdown_extensions:
   - pymdownx.inlinehilite
   - pymdownx.snippets
   - pymdownx.superfences
+
+# >>> BEGIN AUTO-GENERATED NAV (managed by scripts/build_nav.py)
+nav:
+- Home: index.md
+- Examples:
+  - MkDocs README: examples/mkdocs-readme.md
+# <<< END AUTO-GENERATED NAV

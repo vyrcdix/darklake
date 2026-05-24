@@ -32,12 +32,15 @@ jobs:
       - name: Fetch sources
         run: python scripts/fetch.py
 
+      - name: Rebuild nav
+        run: python scripts/build_nav.py
+
       - name: Commit fetched changes
         run: |
-          if [ -n "$(git status --porcelain docs .cache)" ]; then
+          if [ -n "$(git status --porcelain docs .cache mkdocs.yml)" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add docs .cache
+            git add docs .cache mkdocs.yml
             git commit -m "chore: update fetched docs [skip ci]"
             git push
           else
