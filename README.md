@@ -45,12 +45,88 @@ sources:
 Fields:
 
 - `title` — page title shown in the nav and as the HTML `<title>`.
-- `type` — `url` for now. (`gdrive` is coming in step 4.)
-- `url` — the raw markdown URL. For GitHub, use `raw.githubusercontent.com`, not the `github.com` blob view.
+- `type` — `url` or `gdrive`.
+- `url` — for `type: url`, the raw markdown URL. For GitHub, use `raw.githubusercontent.com`, not the `github.com` blob view.
+- `file_id` — for `type: gdrive`, the Drive file ID from the doc URL.
 - `path` — destination under `docs/`. Must stay under `docs/`; path-traversal attempts are rejected.
-- `section` — optional grouping; consumed by the nav builder in step 3.
+- `section` — optional grouping; consumed by the nav builder.
 
 Commit and push. The site rebuilds within ~15 minutes (cron) or immediately if you trigger the workflow manually.
+
+## Authenticated URL sources (private GitHub / Unfuddle / Azure DevOps)
+
+For URLs that need authentication, add an `auth_env:` field naming an env var whose value is used verbatim as the `Authorization` header. Map each env var to a repo secret in `.github/workflows/publish.yml` under `jobs.build.env`.
+
+```yaml
+sources:
+  - title: "Internal Runbook"
+    type: url
+    url: https://raw.githubusercontent.com/your-org/private-repo/main/RUNBOOK.md
+    path: ops/runbook.md
+    auth_env: GH_PAT
+    section: Ops
+```
+
+The secret value includes the auth scheme prefix (e.g. `Bearer ghp_xxx`, `Basic dXNlcjpwYXNz`), so the same code path handles every provider.
+
+### Provider quick reference
+
+| Provider | URL form | Secret value |
+|---|---|---|
+| **Private GitHub** | `https://raw.githubusercontent.com/<owner>/<repo>/<ref>/<path>` | `Bearer <fine-grained-PAT>` |
+| **Unfuddle** | `https://<account>.unfuddle.com/api/v1/repositories/<id>/download?path=<path>` | `Basic <base64(user:api-key)>` |
+| **Azure DevOps Repos** | `https://dev.azure.com/<org>/<project>/_apis/git/repositories/<repo>/items?path=<path>&api-version=7.1` | `Basic <base64(:PAT)>` |
+
+To compute `Basic <base64>` locally: `echo -n "user:secret" | base64`.
+
+### Wiring a new auth secret
+
+1. **Settings → Secrets and variables → Actions → New repository secret.** Paste the full header value (with `Bearer ` / `Basic ` prefix).
+2. Add a line to `.github/workflows/publish.yml` under `jobs.build.env`:
+   ```yaml
+   GH_PAT: ${{ secrets.GH_PAT }}
+   ```
+3. Reference it from a manifest entry's `auth_env:` field.
+
+## Adding a Google Drive source
+
+```yaml
+sources:
+  - title: "Design Doc"
+    type: gdrive
+    file_id: 1AbCdEfG_long_id_from_url
+    path: design/overview.md
+    section: Design
+```
+
+Get `file_id` from the Drive URL: `https://docs.google.com/document/d/<FILE_ID>/edit` or `https://drive.google.com/file/d/<FILE_ID>/view`.
+
+Supported file types:
+
+- **Google Docs** — exported as Markdown.
+- **Native `.md` / `.markdown` / `.txt` files** in Drive — downloaded as-is.
+
+### One-time service-account setup
+
+1. In **Google Cloud Console**, create (or pick) a project.
+2. Enable the **Google Drive API**.
+3. Create a **Service Account**, then under **Keys** → **Add Key** → **JSON**, download the key file.
+4. Note the service-account email (looks like `pub-md@<project>.iam.gserviceaccount.com`).
+5. In Drive, **share each source file** with that email (Viewer access is enough).
+6. In the GitHub repo: **Settings → Secrets and variables → Actions → New repository secret**:
+   - Name: `GDRIVE_SA_JSON`
+   - Value: paste the entire contents of the JSON key file.
+
+The workflow's "Write Drive credentials" step is a no-op when this secret is unset, so the URL-only path keeps working without any Drive config.
+
+### Local Drive access
+
+Save the JSON key outside the repo (it's covered by `.gitignore`'s `*-sa.json` pattern as a defensive guard), then point at it:
+
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS=~/secrets/pub-md-sa.json
+.venv/bin/python scripts/fetch.py
+```
 
 ## Removing or renaming a source
 
@@ -114,9 +190,18 @@ uv pip install --python .venv/bin/python -r requirements.txt
 
 **Workflow can't push fetched changes.** Check that *Workflow permissions* in Actions settings is set to "Read and write".
 
+**Drive fetch fails with `DefaultCredentialsError`.** `GOOGLE_APPLICATION_CREDENTIALS` is unset or points at a missing file (locally), or the `GDRIVE_SA_JSON` secret is missing (in CI).
+
+**Drive fetch fails with `403` or `404`.** The service-account email doesn't have access to that file. Reshare the file with the SA's email and try again.
+
+**Drive fetch fails with `unsupported Drive mimeType`.** The file isn't a Google Doc or a native markdown/text file. Convert it, or copy its contents into a Google Doc.
+
+**Authenticated URL fetch fails with `auth_env 'X' not set`.** The named env var isn't mapped in the workflow's `jobs.build.env` block, or the secret of the same name is missing.
+
+**Authenticated URL fetch fails with `401`.** The token expired, lacks scope, or the header scheme prefix is wrong. Confirm the secret value includes `Bearer ` / `Basic ` exactly as the provider expects.
+
 ## What's next
 
 Per the build order:
 
-- **Step 4** — Google Drive sources via a service account.
 - **Step 5** — polish: orphan pruning, broken-source reporting, "last updated" footers, smarter strict/non-strict fetch behavior.

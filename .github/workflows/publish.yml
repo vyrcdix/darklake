@@ -19,6 +19,12 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      GDRIVE_SA_JSON: ${{ secrets.GDRIVE_SA_JSON }}
+      # Add any auth_env vars used by sources.yaml here, mapped from secrets:
+      # GH_PAT: ${{ secrets.GH_PAT }}
+      # UNFUDDLE_AUTH: ${{ secrets.UNFUDDLE_AUTH }}
+      # AZDO_PAT: ${{ secrets.AZDO_PAT }}
     steps:
       - uses: actions/checkout@v4
 
@@ -28,6 +34,12 @@ jobs:
           cache: pip
 
       - run: pip install -r requirements.txt
+
+      - name: Write Drive credentials
+        if: env.GDRIVE_SA_JSON != ''
+        run: |
+          printf '%s' "$GDRIVE_SA_JSON" > "$RUNNER_TEMP/gdrive-sa.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/gdrive-sa.json" >> "$GITHUB_ENV"
 
       - name: Fetch sources
         run: python scripts/fetch.py

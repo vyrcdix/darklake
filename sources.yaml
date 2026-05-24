@@ -1,13 +1,21 @@
 # Manifest of source markdown files to publish.
 #
 # Each entry supports:
-#   title:   Display title for the page.
-#   type:    Source kind. Currently supported: "url".
-#   url:     For type=url, the raw markdown URL (e.g. raw.githubusercontent.com).
-#   path:    Destination path under docs/ (e.g. "engineering/notes.md").
-#   section: Optional nav grouping (consumed by the nav builder in step 3).
+#   title:     Display title for the page.
+#   type:      Source kind: "url" or "gdrive".
+#   url:       For type=url, the markdown URL (raw view, not the HTML blob view).
+#   auth_env:  For type=url, optional. Name of an env var whose value is
+#              used verbatim as the Authorization header (e.g. "Bearer ghp_..."
+#              or "Basic dXNlcjpwYXNz"). Map secrets via the workflow's job env.
+#   file_id:   For type=gdrive, the Drive file ID (long string in the doc URL).
+#   path:      Destination path under docs/ (e.g. "engineering/notes.md").
+#   section:   Optional nav grouping.
 #
-# Remove or replace the example below with your own sources.
+# Google Drive sources require a service-account JSON key configured via
+# the GOOGLE_APPLICATION_CREDENTIALS env var (locally) or the
+# GDRIVE_SA_JSON repo secret (in CI). The service-account email must
+# have at least Viewer access on each file. Supported Drive file types:
+# native Google Docs (exported as Markdown) and native .md/.txt files.
 
 sources:
   - title: "MkDocs README"
@@ -15,3 +23,34 @@ sources:
     url: https://raw.githubusercontent.com/mkdocs/mkdocs/master/README.md
     path: examples/mkdocs-readme.md
     section: Examples
+
+  # Example: private GitHub repo via a fine-grained PAT.
+  # - title: "Internal Runbook"
+  #   type: url
+  #   url: https://raw.githubusercontent.com/your-org/private-repo/main/RUNBOOK.md
+  #   path: ops/runbook.md
+  #   auth_env: GH_PAT          # store "Bearer ghp_xxxxxxxx" in the GH_PAT secret
+  #   section: Ops
+
+  # Example: Unfuddle (Basic auth with username + API key).
+  # - title: "Project Spec"
+  #   type: url
+  #   url: https://your-account.unfuddle.com/api/v1/repositories/123/download?path=SPEC.md
+  #   path: specs/project.md
+  #   auth_env: UNFUDDLE_AUTH   # store "Basic <base64(user:key)>" in UNFUDDLE_AUTH
+  #   section: Specs
+
+  # Example: Azure DevOps Repos (Basic auth with empty user + PAT).
+  # - title: "Architecture"
+  #   type: url
+  #   url: https://dev.azure.com/your-org/your-project/_apis/git/repositories/<repo>/items?path=ARCH.md&api-version=7.1
+  #   path: arch/index.md
+  #   auth_env: AZDO_PAT        # store "Basic <base64(:pat)>" in AZDO_PAT
+  #   section: Architecture
+
+  # Example: Google Drive (requires GDRIVE_SA_JSON secret + file shared with SA).
+  # - title: "Design Doc"
+  #   type: gdrive
+  #   file_id: 1AbCdEfG_paste_the_file_id_from_the_drive_url
+  #   path: design/overview.md
+  #   section: Design

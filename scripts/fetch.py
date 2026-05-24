@@ -1,22 +1,34 @@
 #!/usr/bin/env python3
 """Fetch markdown sources listed in sources.yaml into docs/.
 
-Reads sources.yaml, fetches each entry, hashes the content, and writes a copy
-under docs/<path> only when the content has changed since the last run. The
-hash cache lives at .cache/hashes.json and is committed alongside the fetched
-docs so subsequent runs can detect real changes.
+Supports two source types:
+
+- type: url     HTTP(S) GET of a markdown file. Optionally authenticated
+                via an `auth_env:` field naming an env var whose contents
+                become the `Authorization` header (covers private GitHub
+                with a PAT, Unfuddle Basic auth, Azure DevOps, etc).
+- type: gdrive  Google Drive file by file_id; Google Docs are exported as
+                Markdown, native .md/.txt files are downloaded as-is.
+
+Reads sources.yaml, fetches each entry, hashes the upstream content, and
+writes a copy under docs/<path> only when the content has changed since
+the last run. The hash cache lives at .cache/hashes.json and is committed
+alongside the fetched docs so subsequent runs can detect real changes.
+
+Google Drive authentication uses a service-account JSON key. The path to
+that key is read from the standard GOOGLE_APPLICATION_CREDENTIALS env var.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 
+import requests
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -25,6 +37,10 @@ DOCS_DIR = ROOT / "docs"
 CACHE_FILE = ROOT / ".cache" / "hashes.json"
 USER_AGENT = "pub-md-fetcher/0.1"
 TIMEOUT = 30
+
+GDOC_MIME = "application/vnd.google-apps.document"
+NATIVE_MD_MIMES = {"text/markdown", "text/x-markdown", "text/plain"}
+DRIVE_API = "https://www.googleapis.com/drive/v3/files"
 
 
 def load_sources() -> list[dict]:
@@ -45,26 +61,79 @@ def save_cache(cache: dict[str, str]) -> None:
     CACHE_FILE.write_text(json.dumps(cache, indent=2, sort_keys=True) + "\n")
 
 
-def fetch_url(url: str) -> str:
-    req = Request(url, headers={"User-Agent": USER_AGENT})
-    with urlopen(req, timeout=TIMEOUT) as resp:
-        charset = resp.headers.get_content_charset() or "utf-8"
-        return resp.read().decode(charset)
+def fetch_url(url: str, auth_env: str | None = None) -> str:
+    headers = {"User-Agent": USER_AGENT}
+    if auth_env:
+        token = os.environ.get(auth_env)
+        if not token:
+            raise RuntimeError(f"auth_env {auth_env!r} not set")
+        headers["Authorization"] = token
+    r = requests.get(url, headers=headers, timeout=TIMEOUT)
+    r.raise_for_status()
+    return r.text
+
+
+def build_drive_session():
+    """Build an authenticated Drive session using application-default credentials."""
+    import google.auth
+    from google.auth.transport.requests import AuthorizedSession
+
+    creds, _ = google.auth.default(
+        scopes=["https://www.googleapis.com/auth/drive.readonly"]
+    )
+    return AuthorizedSession(creds)
+
+
+def fetch_gdrive(file_id: str, session) -> str:
+    meta = session.get(
+        f"{DRIVE_API}/{file_id}",
+        params={"fields": "mimeType,name"},
+        timeout=TIMEOUT,
+    )
+    meta.raise_for_status()
+    mime = meta.json().get("mimeType", "")
+
+    if mime == GDOC_MIME:
+        r = session.get(
+            f"{DRIVE_API}/{file_id}/export",
+            params={"mimeType": "text/markdown"},
+            timeout=TIMEOUT,
+        )
+    elif mime in NATIVE_MD_MIMES:
+        r = session.get(
+            f"{DRIVE_API}/{file_id}",
+            params={"alt": "media"},
+            timeout=TIMEOUT,
+        )
+    else:
+        raise ValueError(f"unsupported Drive mimeType: {mime!r}")
+
+    r.raise_for_status()
+    return r.text
+
+
+def source_ref(source: dict) -> str:
+    kind = source.get("type")
+    if kind == "url":
+        return source.get("url", "")
+    if kind == "gdrive":
+        fid = source.get("file_id", "")
+        return f"https://drive.google.com/file/d/{fid}/view" if fid else ""
+    return ""
 
 
 def render(source: dict, body: str) -> str:
     meta = {
         "title": source.get("title"),
-        "source": source.get("url", ""),
+        "source": source_ref(source),
         "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
-    meta = {k: v for k, v in meta.items() if v is not None}
+    meta = {k: v for k, v in meta.items() if v}
     fm = yaml.safe_dump(meta, sort_keys=False, default_flow_style=False).strip()
     return f"---\n{fm}\n---\n\n{body}"
 
 
 def safe_dest(path: str) -> Path | None:
-    """Resolve <DOCS_DIR>/<path> and reject anything escaping docs/."""
     dest = (DOCS_DIR / path).resolve()
     try:
         dest.relative_to(DOCS_DIR.resolve())
@@ -78,6 +147,7 @@ def main() -> int:
     cache = load_cache()
     changed: list[str] = []
     errors: list[tuple[str, str]] = []
+    drive = None
 
     for src in sources:
         path = src.get("path")
@@ -93,11 +163,15 @@ def main() -> int:
         kind = src.get("type")
         try:
             if kind == "url":
-                body = fetch_url(src["url"])
+                body = fetch_url(src["url"], src.get("auth_env"))
+            elif kind == "gdrive":
+                if drive is None:
+                    drive = build_drive_session()
+                body = fetch_gdrive(src["file_id"], drive)
             else:
                 errors.append((path, f"unsupported type: {kind!r}"))
                 continue
-        except (HTTPError, URLError, TimeoutError) as e:
+        except Exception as e:
             errors.append((path, f"{type(e).__name__}: {e}"))
             continue
 
