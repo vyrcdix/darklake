@@ -160,6 +160,12 @@ Locally, `fetch.py` defaults to strict mode (exit 1 on any per-source error) so 
 2. **Settings → Actions → General → Workflow permissions** = "Read and write permissions" (so the cron can commit fetched changes back).
 3. Trigger the workflow manually once to confirm the full pipeline works.
 
+## Publishing confidential content
+
+This repo is set up for public GitHub Pages — anything in `docs/` is world-readable once deployed. For sensitive sources, stand up a **second** darklake instance in a private repo, served via Azure Static Web Apps + Microsoft Entra ID auth, and keep this (public) instance for shareable docs only.
+
+Step-by-step in [`runbooks/private-instance.md`](runbooks/private-instance.md). Plan ~45 min for the first setup.
+
 ## Local development
 
 This repo uses [`uv`](https://github.com/astral-sh/uv) for environment management.
