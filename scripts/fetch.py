@@ -14,9 +14,15 @@ Reads sources.yaml, fetches each entry, hashes the upstream content, and
 writes a copy under docs/<path> only when the content has changed since
 the last run. The hash cache lives at .cache/hashes.json and is committed
 alongside the fetched docs so subsequent runs can detect real changes.
+Removing an entry from sources.yaml prunes its file and cache entry on
+the next run.
 
 Google Drive authentication uses a service-account JSON key. The path to
 that key is read from the standard GOOGLE_APPLICATION_CREDENTIALS env var.
+
+Exits 1 on any per-source error by default (good for local feedback).
+Pass --continue to exit 0 with errors logged to stderr, so a single
+broken source does not block a cron run from publishing the rest.
 """
 
 from __future__ import annotations
@@ -123,14 +129,21 @@ def source_ref(source: dict) -> str:
 
 
 def render(source: dict, body: str) -> str:
+    ref = source_ref(source)
+    title = source.get("title") or ""
+    fetched = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     meta = {
-        "title": source.get("title"),
-        "source": source_ref(source),
-        "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "title": title or None,
+        "source": ref or None,
+        "fetched_at": fetched,
     }
     meta = {k: v for k, v in meta.items() if v}
     fm = yaml.safe_dump(meta, sort_keys=False, default_flow_style=False).strip()
-    return f"---\n{fm}\n---\n\n{body}"
+
+    link = f"[{title or 'source'}]({ref})" if ref else (title or "source")
+    footer = f"\n\n---\n\n*Source: {link} &middot; Fetched: {fetched}*\n"
+
+    return f"---\n{fm}\n---\n\n{body.rstrip()}{footer}"
 
 
 def safe_dest(path: str) -> Path | None:
@@ -143,10 +156,15 @@ def safe_dest(path: str) -> Path | None:
 
 
 def main() -> int:
+    strict = "--continue" not in sys.argv[1:]
+
     sources = load_sources()
     cache = load_cache()
     changed: list[str] = []
+    unchanged: list[str] = []
+    pruned: list[str] = []
     errors: list[tuple[str, str]] = []
+    declared: set[str] = set()
     drive = None
 
     for src in sources:
@@ -154,6 +172,8 @@ def main() -> int:
         if not path:
             errors.append(("(no path)", "missing 'path'"))
             continue
+
+        declared.add(path)
 
         dest = safe_dest(path)
         if dest is None:
@@ -177,6 +197,7 @@ def main() -> int:
 
         digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
         if cache.get(path) == digest and dest.exists():
+            unchanged.append(path)
             continue
 
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -184,21 +205,29 @@ def main() -> int:
         cache[path] = digest
         changed.append(path)
 
+    for orphan in sorted(set(cache) - declared):
+        dest = safe_dest(orphan)
+        if dest and dest.exists():
+            dest.unlink()
+        cache.pop(orphan, None)
+        pruned.append(orphan)
+
     save_cache(cache)
 
-    if changed:
-        print(f"Updated {len(changed)} file(s):")
-        for p in changed:
-            print(f"  - {p}")
-    else:
-        print("No changes.")
+    print(f"Fetched:   {len(changed)}")
+    for p in changed:
+        print(f"  + {p}")
+    print(f"Unchanged: {len(unchanged)}")
+    print(f"Pruned:    {len(pruned)}")
+    for p in pruned:
+        print(f"  - {p}")
+    print(f"Errors:    {len(errors)}")
+    sys.stdout.flush()
+    for p, msg in errors:
+        print(f"  ! {p}: {msg}", file=sys.stderr)
 
-    if errors:
-        print(f"\n{len(errors)} error(s):", file=sys.stderr)
-        for p, msg in errors:
-            print(f"  - {p}: {msg}", file=sys.stderr)
+    if errors and strict:
         return 1
-
     return 0
 
 

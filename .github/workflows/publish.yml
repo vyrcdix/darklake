@@ -42,7 +42,7 @@ jobs:
           echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/gdrive-sa.json" >> "$GITHUB_ENV"
 
       - name: Fetch sources
-        run: python scripts/fetch.py
+        run: python scripts/fetch.py --continue
 
       - name: Rebuild nav
         run: python scripts/build_nav.py

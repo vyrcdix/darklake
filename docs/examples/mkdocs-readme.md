@@ -1,7 +1,7 @@
 ---
 title: MkDocs README
 source: https://raw.githubusercontent.com/mkdocs/mkdocs/master/README.md
-fetched_at: '2026-05-24T16:14:29Z'
+fetched_at: 2026-05-24 22:21 UTC
 ---
 
 # MkDocs
@@ -83,3 +83,7 @@ discussion forums is expected to follow the [PyPA Code of Conduct].
 ## License
 
 [BSD-2-Clause](https://github.com/mkdocs/mkdocs/blob/master/LICENSE)
+
+---
+
+*Source: [MkDocs README](https://raw.githubusercontent.com/mkdocs/mkdocs/master/README.md) &middot; Fetched: 2026-05-24 22:21 UTC*

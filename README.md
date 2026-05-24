@@ -131,10 +131,9 @@ export GOOGLE_APPLICATION_CREDENTIALS=~/secrets/pub-md-sa.json
 ## Removing or renaming a source
 
 1. Delete (or update) the entry in `sources.yaml`.
-2. Delete the corresponding file under `docs/` and its key from `.cache/hashes.json`.
-3. Commit and push.
+2. Commit and push.
 
-The fetcher does not currently auto-prune orphaned files — tracked under step 5 polish.
+On the next run, `fetch.py` detects that the entry is no longer declared, deletes its file under `docs/`, and removes the cache entry. Empty parent directories are left behind as a harmless side effect — clean up manually if it bothers you.
 
 ## Publishing triggers
 
@@ -146,11 +145,14 @@ The workflow runs on:
 
 Each run does:
 
-1. Fetch every source.
-2. Regenerate the nav block in `mkdocs.yml` from `sources.yaml`.
-3. If anything changed (fetched docs, cache, or nav), commit it back as `chore: update fetched docs [skip ci]`.
-4. Run `mkdocs build --strict`.
-5. Deploy the resulting `site/` to GitHub Pages.
+1. Fetch every source (`fetch.py --continue` — broken sources are logged but don't block the run).
+2. Prune orphaned files for entries removed from `sources.yaml`.
+3. Regenerate the nav block in `mkdocs.yml` from `sources.yaml`.
+4. If anything changed (fetched docs, cache, or nav), commit it back as `chore: update fetched docs [skip ci]`.
+5. Run `mkdocs build --strict`.
+6. Deploy the resulting `site/` to GitHub Pages.
+
+Locally, `fetch.py` defaults to strict mode (exit 1 on any per-source error) so problems are loud. The cron passes `--continue` so a single broken upstream URL doesn't block the rest from publishing.
 
 ## One-time GitHub setup
 
@@ -200,8 +202,14 @@ uv pip install --python .venv/bin/python -r requirements.txt
 
 **Authenticated URL fetch fails with `401`.** The token expired, lacks scope, or the header scheme prefix is wrong. Confirm the secret value includes `Bearer ` / `Basic ` exactly as the provider expects.
 
-## What's next
+## Source provenance on each page
 
-Per the build order:
+Every fetched page gets a footer showing the upstream link and the timestamp of the last fetch, so readers can find the canonical source and know how fresh the copy is:
 
-- **Step 5** — polish: orphan pruning, broken-source reporting, "last updated" footers, smarter strict/non-strict fetch behavior.
+```markdown
+---
+
+*Source: [Original Title](https://...) · Fetched: 2026-05-24 16:42 UTC*
+```
+
+Hand-written pages (like `docs/index.md`) don't get a footer — they're authored in place.
