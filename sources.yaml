@@ -1,0 +1,17 @@
+# Manifest of source markdown files to publish.
+#
+# Each entry supports:
+#   title:   Display title for the page.
+#   type:    Source kind. Currently supported: "url".
+#   url:     For type=url, the raw markdown URL (e.g. raw.githubusercontent.com).
+#   path:    Destination path under docs/ (e.g. "engineering/notes.md").
+#   section: Optional nav grouping (consumed by the nav builder in step 3).
+#
+# Remove or replace the example below with your own sources.
+
+sources:
+  - title: "MkDocs README"
+    type: url
+    url: https://raw.githubusercontent.com/mkdocs/mkdocs/master/README.md
+    path: examples/mkdocs-readme.md
+    section: Examples
